@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/*
+ * Mokky's brand palette (see spec §2).
+ * Orange Sauce = primary, Buttercream = alt bg, Green Salsa = accent/success,
+ * White Milk = bg. Font: IBM Plex Sans (loaded via next/font in layout.tsx).
+ */
+@theme {
+  --color-brand-orange: #eb702d;
+  --color-brand-buttercream: #fef7c3;
+  --color-brand-green: #7ed956;
+  --color-brand-white: #ffffff;
+
+  --color-background: #ffffff;
+  --color-foreground: #171717;
+
+  --font-sans: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+}
