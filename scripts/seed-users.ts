@@ -4,8 +4,8 @@
  *
  * Run: pnpm seed:users
  *
- * Phase 0: creates auth.users + public.profiles only.
- * Phase 1 will extend this to link user_outlets (tables don't exist yet).
+ * Creates auth.users + public.profiles, and links user_outlets from each
+ * fixture's outletCodes (looked up by code — the natural key).
  */
 import { config } from "dotenv";
 import { createClient, type User } from "@supabase/supabase-js";
@@ -80,6 +80,35 @@ async function main() {
     );
     if (profileError) throw profileError;
     console.log(`    profile: ${f.role}`);
+
+    // Link the fixture's outlets (by code -> id). Idempotent upsert.
+    if (f.outletCodes.length > 0) {
+      const { data: outlets, error: outletsError } = await admin
+        .from("outlets")
+        .select("id, code")
+        .in("code", f.outletCodes);
+      if (outletsError) throw outletsError;
+
+      const missing = f.outletCodes.filter(
+        (c) => !outlets?.some((o) => o.code === c),
+      );
+      if (missing.length) {
+        throw new Error(
+          `Outlet code(s) not found for ${f.email}: ${missing.join(", ")}. ` +
+            "Push the reference migrations first.",
+        );
+      }
+
+      const rows = (outlets ?? []).map((o) => ({
+        user_id: userId,
+        outlet_id: o.id,
+      }));
+      const { error: linkError } = await admin
+        .from("user_outlets")
+        .upsert(rows, { onConflict: "user_id,outlet_id" });
+      if (linkError) throw linkError;
+      console.log(`    outlets: ${f.outletCodes.join(", ")}`);
+    }
   }
 
   console.log("Done.");

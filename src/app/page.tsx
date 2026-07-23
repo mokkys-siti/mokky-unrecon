@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth/session";
@@ -65,7 +66,16 @@ export default async function Home() {
           </p>
         ) : null}
 
-        <form action={logout} className="mt-6">
+        {session.appRole === "admin" ? (
+          <Link
+            href="/admin"
+            className="mt-6 block rounded-lg bg-brand-orange px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-95"
+          >
+            Open admin configuration
+          </Link>
+        ) : null}
+
+        <form action={logout} className="mt-3">
           <button
             type="submit"
             className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
