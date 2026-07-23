@@ -55,7 +55,7 @@ export async function publishBatchAction(
       .eq("id", batchId);
   }
 
-  await publishBatch(supabase, batchId);
+  await publishBatch(supabase, batchId, session.userId);
   revalidatePath(`/finance/batches/${batchId}`);
   revalidatePath("/finance/batches");
   return { error: null, published: true };

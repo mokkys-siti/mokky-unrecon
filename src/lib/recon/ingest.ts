@@ -86,6 +86,22 @@ export async function stageBatch(
     }
   }
 
+  // One unpublished batch per outlet at a time. This keeps the age-up/publish
+  // model unambiguous (a later stage cannot strand an earlier batch's cases).
+  const { data: openBatch } = await supabase
+    .from("recon_batches")
+    .select("id")
+    .eq("outlet_id", outlet.id)
+    .in("status", ["parsing", "review"])
+    .is("deleted_at", null)
+    .limit(1)
+    .maybeSingle();
+  if (openBatch) {
+    throw new Error(
+      `${outlet.code} already has an unpublished batch. Publish or delete it before uploading again.`,
+    );
+  }
+
   // Create the batch (unique on outlet+file_hash prevents double upload).
   const { data: batch, error: batchErr } = await supabase
     .from("recon_batches")
@@ -135,17 +151,16 @@ export async function stageBatch(
   const existing = new Map((existingRows ?? []).map((r) => [r.case_key, r]));
 
   let created = 0;
-  let agedUp = 0;
+  // Existing unresolved cases that reappeared. We do NOT repoint their batch_id
+  // now — that happens at publish, so they stay visible on their last published
+  // batch while this one is in review, and can't be stranded by a later stage.
+  const seenExistingIds: string[] = [];
   const RESOLVED = new Set(["closed", "auto_closed"]);
 
   for (const { c, key } of keyed) {
     const prior = existing.get(key);
     if (prior) {
-      // Existing & unresolved -> age up (update batch_id), keep first_seen etc.
-      if (!RESOLVED.has(prior.status)) {
-        await supabase.from("unrecon_cases").update({ batch_id: batchId, updated_at: new Date().toISOString() }).eq("id", prior.id);
-        agedUp++;
-      }
+      if (!RESOLVED.has(prior.status)) seenExistingIds.push(prior.id);
       continue;
     }
 
@@ -220,6 +235,7 @@ export async function stageBatch(
   // Feed-completeness gate: a gateway that previously had rows now reading zero.
   const feedWarnings = await checkFeedCompleteness(supabase, outlet.id, batchId, parsed.stats);
 
+  const agedUp = seenExistingIds.length;
   const summary = {
     outletName: parsed.outletName,
     checksum: parsed.checksum,
@@ -232,6 +248,8 @@ export async function stageBatch(
       created,
       agedUp,
     },
+    // Recorded so publish can age these up (repoint to this batch) at publish time.
+    seenExistingIds,
     feedWarnings,
   };
   await supabase.from("recon_batches").update({ parse_summary: summary }).eq("id", batchId);
@@ -245,10 +263,14 @@ async function checkFeedCompleteness(
   batchId: string,
   stats: { gatewayCode: string; rowsRead: number }[],
 ): Promise<{ gatewayCode: string; previous: number; now: number }[]> {
+  // Baseline against the most recent PUBLISHED, non-deleted batch — a failed or
+  // retracted batch must not become the "previous had data" reference.
   const { data: prevBatch } = await supabase
     .from("recon_batches")
     .select("id")
     .eq("outlet_id", outletId)
+    .eq("status", "published")
+    .is("deleted_at", null)
     .neq("id", batchId)
     .order("uploaded_at", { ascending: false })
     .limit(1)
@@ -271,26 +293,49 @@ async function checkFeedCompleteness(
   return warnings;
 }
 
-/** Publish a reviewed batch: cases become outlet-visible, and prior open cases
- * for the outlet that were absent from this import are auto-closed (cleared). */
-export async function publishBatch(supabase: DB, batchId: string): Promise<{ autoClosed: number }> {
+/** Publish a reviewed batch. Order matters:
+ *  1. Age up the cases this import re-saw (repoint to this batch) so they stay
+ *     visible and are NOT swept by step 2.
+ *  2. Auto-close the outlet's remaining open cases (absent from this import) as
+ *     cleared in a later recon.
+ *  3. Mark the batch published (cases become outlet-visible via RLS).
+ */
+export async function publishBatch(
+  supabase: DB,
+  batchId: string,
+  closedBy: string | null = null,
+): Promise<{ autoClosed: number; agedUp: number }> {
   const { data: batch, error } = await supabase
     .from("recon_batches")
-    .select("id, outlet_id, status")
+    .select("id, outlet_id, status, parse_summary")
     .eq("id", batchId)
     .single();
   if (error || !batch) throw new Error("Batch not found");
 
   const nowIso = new Date().toISOString();
+  const summary = (batch.parse_summary ?? {}) as { seenExistingIds?: string[] };
+  const seen = summary.seenExistingIds ?? [];
+
+  // 1. Age up re-seen cases (do this BEFORE the sweep so they're excluded).
+  if (seen.length) {
+    await supabase
+      .from("unrecon_cases")
+      .update({ batch_id: batchId, updated_at: nowIso })
+      .in("id", seen)
+      .in("status", ["open", "awaiting_outlet", "outlet_responded", "under_review"]);
+  }
+
+  // 2. Auto-close remaining open cases for the outlet that this import didn't touch.
   const { data: closed } = await supabase
     .from("unrecon_cases")
-    .update({ status: "auto_closed", closed_at: nowIso, updated_at: nowIso })
+    .update({ status: "auto_closed", closed_at: nowIso, closed_by: closedBy, updated_at: nowIso })
     .eq("outlet_id", batch.outlet_id)
     .neq("batch_id", batchId)
     .in("status", ["open", "awaiting_outlet", "outlet_responded", "under_review"])
     .is("deleted_at", null)
     .select("id");
 
+  // 3. Publish.
   await supabase.from("recon_batches").update({ status: "published" }).eq("id", batchId);
-  return { autoClosed: closed?.length ?? 0 };
+  return { autoClosed: closed?.length ?? 0, agedUp: seen.length };
 }
