@@ -66,10 +66,21 @@ export default async function Home() {
           </p>
         ) : null}
 
+        {(session.appRole === "admin" ||
+          session.appRole === "finance_exec" ||
+          session.appRole === "finance_manager") ? (
+          <Link
+            href="/finance"
+            className="mt-6 block rounded-lg bg-brand-orange px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-95"
+          >
+            Open finance desk
+          </Link>
+        ) : null}
+
         {session.appRole === "admin" ? (
           <Link
             href="/admin"
-            className="mt-6 block rounded-lg bg-brand-orange px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-95"
+            className="mt-3 block rounded-lg border border-brand-orange px-4 py-2 text-center text-sm font-semibold text-brand-orange transition hover:bg-brand-orange/5"
           >
             Open admin configuration
           </Link>
