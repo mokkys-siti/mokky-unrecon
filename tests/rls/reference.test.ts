@@ -15,7 +15,7 @@ describe("Reference: seed integrity", () => {
       ["payment_gateways", 8],
       ["reason_codes", 28],
       ["classification_rules", 5],
-      ["disposition_codes", 0],
+      ["disposition_codes", 6],
     ];
     for (const [table, n] of expected) {
       const { count, error } = await svc

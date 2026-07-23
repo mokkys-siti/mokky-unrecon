@@ -66,6 +66,16 @@ export default async function Home() {
           </p>
         ) : null}
 
+        {(session.appRole === "outlet_user" ||
+          session.appRole === "outlet_manager") ? (
+          <Link
+            href="/outlet"
+            className="mt-6 block rounded-lg bg-brand-orange px-4 py-2 text-center text-sm font-semibold text-white transition hover:brightness-95"
+          >
+            Open my cases
+          </Link>
+        ) : null}
+
         {(session.appRole === "admin" ||
           session.appRole === "finance_exec" ||
           session.appRole === "finance_manager") ? (

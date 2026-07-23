@@ -32,6 +32,9 @@ export default async function FinanceLayout({
               <Link href="/finance/batches" className="text-gray-600 hover:text-brand-orange">
                 Batches
               </Link>
+              <Link href="/finance/cases" className="text-gray-600 hover:text-brand-orange">
+                Cases
+              </Link>
             </nav>
           </div>
           <form action={logout}>
