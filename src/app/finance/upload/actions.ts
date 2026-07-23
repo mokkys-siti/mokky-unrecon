@@ -14,7 +14,8 @@ export type FileResult = {
   message: string;
   batchId?: string;
 };
-export type UploadState = { results: FileResult[] };
+
+export type UploadItem = { path: string; filename: string };
 
 function extractPeriod(name: string): string | null {
   const m = name.match(/(\d{4})[._-](\d{2})[._-]?([Ww]\d+)?/);
@@ -22,10 +23,14 @@ function extractPeriod(name: string): string | null {
   return `${m[1]}.${m[2]}${m[3] ? "_" + m[3].toUpperCase() : ""}`;
 }
 
-export async function uploadRecon(
-  _prev: UploadState,
-  formData: FormData,
-): Promise<UploadState> {
+/**
+ * Parse files that were already uploaded to the private recon-uploads bucket by
+ * the browser. Only small path strings cross the Server Action boundary, so the
+ * request-body cap never applies — finance can stage all outlets at once.
+ */
+export async function processUploads(
+  items: UploadItem[],
+): Promise<{ results: FileResult[] }> {
   const session = await getSession();
   const allowed =
     session &&
@@ -35,39 +40,40 @@ export async function uploadRecon(
     return { results: [{ fileName: "—", ok: false, message: "Not authorized." }] };
   }
 
-  const files = formData
-    .getAll("files")
-    .filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) {
-    return { results: [{ fileName: "—", ok: false, message: "Choose at least one .xlsx file." }] };
-  }
-
   const supabase = await createClient();
   const results: FileResult[] = [];
 
-  for (const file of files) {
+  for (const item of items) {
     try {
-      const buf = Buffer.from(await file.arrayBuffer());
+      const { data: blob, error } = await supabase.storage
+        .from("recon-uploads")
+        .download(item.path);
+      if (error || !blob) throw new Error("Could not read the uploaded file.");
+
+      const buf = Buffer.from(await blob.arrayBuffer());
       const fileHash = crypto.createHash("sha256").update(buf).digest("hex");
       const workbook = read(buf, { type: "buffer" });
+
       const res = await stageBatch(supabase, {
         workbook,
-        fileName: file.name,
+        fileName: item.filename,
         fileHash,
-        periodLabel: extractPeriod(file.name),
+        periodLabel: extractPeriod(item.filename),
         uploadedBy: session.userId,
       });
       const warn = res.feedWarnings.length
         ? ` — ${res.feedWarnings.length} feed warning(s)`
         : "";
       results.push({
-        fileName: file.name,
+        fileName: item.filename,
         ok: true,
         message: `${res.outletCode}: ${res.created} new, ${res.agedUp} aged up${warn}`,
         batchId: res.batchId,
       });
     } catch (e) {
-      results.push({ fileName: file.name, ok: false, message: (e as Error).message });
+      results.push({ fileName: item.filename, ok: false, message: (e as Error).message });
+    } finally {
+      await supabase.storage.from("recon-uploads").remove([item.path]);
     }
   }
 
