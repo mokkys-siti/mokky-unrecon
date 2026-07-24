@@ -47,6 +47,50 @@ export async function loadLayoutConfig(
   };
 }
 
+type OutletRow = { id: string; code: string; zeoniq_name: string | null };
+
+// Lowercase, collapse whitespace, strip leading/trailing non-alphanumerics
+// (so "04-Setapak_" and "04-Setapak" compare equal).
+function normalizeName(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+$/g, "")
+    .replace(/^[^a-z0-9]+/g, "")
+    .replace(/\s+/g, " ");
+}
+
+// Leading store number, e.g. "04-Setapak" -> "04", "ZEN01-Zenders" -> "zen01".
+function prefixKey(s: string): string | null {
+  const m = s.trim().match(/^(zen\d+|\d+)/i);
+  return m ? m[1].toLowerCase() : null;
+}
+
+export function resolveOutlet(
+  fileOutletName: string | null,
+  fileName: string,
+  outlets: OutletRow[],
+): OutletRow | null {
+  if (fileOutletName) {
+    const n = normalizeName(fileOutletName);
+    const byName = outlets.find((o) => o.zeoniq_name && normalizeName(o.zeoniq_name) === n);
+    if (byName) return byName;
+
+    const pk = prefixKey(fileOutletName);
+    if (pk) {
+      const byPrefix = outlets.find((o) => o.zeoniq_name && prefixKey(o.zeoniq_name) === pk);
+      if (byPrefix) return byPrefix;
+    }
+  }
+
+  // Outlet code delimited in the filename (e.g. Reconciliation_OST - ...).
+  const fn = fileName.toUpperCase();
+  const byCode = outlets.find((o) =>
+    new RegExp(`(?:^|[^A-Z])${o.code}(?:[^A-Z]|$)`).test(fn),
+  );
+  return byCode ?? null;
+}
+
 export type StageResult = {
   batchId: string;
   outletCode: string;
@@ -70,14 +114,20 @@ export async function stageBatch(
   const { layout, gateways } = await loadLayoutConfig(supabase);
   const parsed = parseWorkbook(args.workbook, layout, gateways);
 
-  // Resolve outlet from the name inside the file (Results Outlet column).
-  if (!parsed.outletName) throw new Error("Could not read the outlet name from the file");
-  const { data: outlet } = await supabase
+  // Resolve outlet tolerantly: the Zeoniq name inside the file (normalised to
+  // absorb trailing junk like "04-Setapak_"), then its numeric prefix, then the
+  // outlet code embedded in the filename (Reconciliation_OST_...).
+  const { data: allOutlets } = await supabase
     .from("outlets")
     .select("id, code, zeoniq_name")
-    .eq("zeoniq_name", parsed.outletName)
-    .maybeSingle();
-  if (!outlet) throw new Error(`No outlet matches '${parsed.outletName}'`);
+    .is("deleted_at", null);
+  const outlet = resolveOutlet(parsed.outletName, args.fileName, allOutlets ?? []);
+  if (!outlet) {
+    throw new Error(
+      `Could not match this file to an outlet (file says '${parsed.outletName ?? "?"}'). ` +
+        "Check the outlet's Zeoniq name in admin, or that the filename includes the outlet code.",
+    );
+  }
 
   // Assign a gateway to Interrecon variance cases (they have none).
   for (const c of parsed.cases) {
