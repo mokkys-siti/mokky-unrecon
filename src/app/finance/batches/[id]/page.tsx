@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PublishForm } from "./publish-form";
+import { DeleteBatchButton } from "./delete-button";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,8 @@ export default async function BatchReview({
   const { data: cases } = await supabase
     .from("unrecon_cases")
     .select("case_type, classification, outlet_visible, status")
-    .eq("batch_id", id);
+    .eq("batch_id", id)
+    .is("deleted_at", null);
 
   const summary = (batch.parse_summary ?? {}) as Summary;
   const outlet = Array.isArray(batch.outlets) ? batch.outlets[0] : batch.outlets;
@@ -167,8 +169,16 @@ export default async function BatchReview({
 
       {/* Publish */}
       {batch.status === "review" ? (
-        <div className="mt-6">
+        <div className="mt-6 space-y-4">
           <PublishForm batchId={id} hasWarnings={warnings.length > 0} />
+          <div className="rounded-xl border border-gray-200 bg-brand-white p-4">
+            <h2 className="text-sm font-semibold text-gray-900">Wrong file?</h2>
+            <p className="mt-1 mb-3 text-sm text-gray-600">
+              Delete this batch and its {caseRows.length} case(s). Nothing has been
+              sent to the outlet yet, and you can re-upload the corrected file after.
+            </p>
+            <DeleteBatchButton batchId={id} />
+          </div>
         </div>
       ) : batch.status === "published" ? (
         <p className="mt-6 rounded-lg bg-brand-green/10 px-4 py-3 text-sm text-green-800">

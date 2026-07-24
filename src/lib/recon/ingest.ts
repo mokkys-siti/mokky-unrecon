@@ -141,12 +141,15 @@ export async function stageBatch(
     (gwRows ?? []).map((g) => [g.code, { min: Number(g.tolerance_min), max: Number(g.tolerance_max) }]),
   );
 
-  // Existing cases for this outlet keyed by case_key (idempotent re-import).
+  // Existing LIVE cases for this outlet keyed by case_key (idempotent re-import).
+  // Soft-deleted cases are ignored on purpose: after deleting a wrongly-uploaded
+  // batch, re-importing the corrected file must create fresh cases.
   const keyed = parsed.cases.map((c) => ({ c, key: buildCaseKey(outlet.code, c) }));
   const { data: existingRows } = await supabase
     .from("unrecon_cases")
     .select("id, case_key, status")
     .eq("outlet_id", outlet.id)
+    .is("deleted_at", null)
     .in("case_key", keyed.map((k) => k.key));
   const existing = new Map((existingRows ?? []).map((r) => [r.case_key, r]));
 
