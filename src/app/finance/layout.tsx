@@ -26,6 +26,9 @@ export default async function FinanceLayout({
               Mokky&apos;s Finance
             </Link>
             <nav className="flex gap-4 text-sm">
+              <Link href="/finance/dashboard" className="text-gray-600 hover:text-brand-orange">
+                Dashboard
+              </Link>
               <Link href="/finance/upload" className="text-gray-600 hover:text-brand-orange">
                 Upload
               </Link>

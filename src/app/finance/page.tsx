@@ -11,6 +11,15 @@ export default function FinanceHome() {
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <Link
+          href="/finance/dashboard"
+          className="rounded-xl border border-gray-200 bg-brand-white p-5 transition hover:border-brand-orange"
+        >
+          <h2 className="font-semibold text-gray-900">Outlet performance</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Response rate, awaiting cases, and outstanding exposure per outlet.
+          </p>
+        </Link>
+        <Link
           href="/finance/upload"
           className="rounded-xl border border-gray-200 bg-brand-white p-5 transition hover:border-brand-orange"
         >
