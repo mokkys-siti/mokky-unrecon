@@ -17,7 +17,8 @@ export type FileResult = {
 };
 
 function extractPeriod(name: string): string | null {
-  const m = name.match(/(\d{4})[._-](\d{2})[._-]?([Ww]\d+)?/);
+  // Captures the trailing week token whole, e.g. W1W2 / W3 (not just W1).
+  const m = name.match(/(\d{4})[._-](\d{2})[._-]?([Ww]\d+(?:[Ww]\d+)*)?/);
   if (!m) return null;
   return `${m[1]}.${m[2]}${m[3] ? "_" + m[3].toUpperCase() : ""}`;
 }

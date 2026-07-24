@@ -86,23 +86,11 @@ export async function stageBatch(
     }
   }
 
-  // One unpublished batch per outlet at a time. This keeps the age-up/publish
-  // model unambiguous (a later stage cannot strand an earlier batch's cases).
-  const { data: openBatch } = await supabase
-    .from("recon_batches")
-    .select("id")
-    .eq("outlet_id", outlet.id)
-    .in("status", ["parsing", "review"])
-    .is("deleted_at", null)
-    .limit(1)
-    .maybeSingle();
-  if (openBatch) {
-    throw new Error(
-      `${outlet.code} already has an unpublished batch. Publish or delete it before uploading again.`,
-    );
-  }
+  // Multiple unpublished batches per outlet are allowed (e.g. two periods loaded
+  // together). Publish is order-safe: it only clears cases from OLDER PUBLISHED
+  // batches, never from another still-in-review batch (see publishBatch).
 
-  // Create the batch (unique on outlet+file_hash prevents double upload).
+  // Create the batch (unique on outlet+file_hash prevents the same file twice).
   const { data: batch, error: batchErr } = await supabase
     .from("recon_batches")
     .insert({
@@ -310,7 +298,7 @@ export async function publishBatch(
 ): Promise<{ autoClosed: number; agedUp: number }> {
   const { data: batch, error } = await supabase
     .from("recon_batches")
-    .select("id, outlet_id, status, parse_summary")
+    .select("id, outlet_id, status, parse_summary, uploaded_at")
     .eq("id", batchId)
     .single();
   if (error || !batch) throw new Error("Batch not found");
@@ -319,7 +307,7 @@ export async function publishBatch(
   const summary = (batch.parse_summary ?? {}) as { seenExistingIds?: string[] };
   const seen = summary.seenExistingIds ?? [];
 
-  // 1. Age up re-seen cases (do this BEFORE the sweep so they're excluded).
+  // 1. Age up re-seen cases FIRST (repoints them to this batch, so step 2 skips them).
   if (seen.length) {
     await supabase
       .from("unrecon_cases")
@@ -328,17 +316,31 @@ export async function publishBatch(
       .in("status", ["open", "awaiting_outlet", "outlet_responded", "under_review"]);
   }
 
-  // 2. Auto-close remaining open cases for the outlet that this import didn't touch.
-  const { data: closed } = await supabase
-    .from("unrecon_cases")
-    .update({ status: "auto_closed", closed_at: nowIso, closed_by: closedBy, updated_at: nowIso })
+  // 2. Auto-close prior state absent from this import — but ONLY cases belonging
+  //    to OLDER, already-published batches. This never touches another batch
+  //    that is still in review, and never a newer batch, so publish order is safe.
+  const { data: olderPublished } = await supabase
+    .from("recon_batches")
+    .select("id")
     .eq("outlet_id", batch.outlet_id)
-    .neq("batch_id", batchId)
-    .in("status", ["open", "awaiting_outlet", "outlet_responded", "under_review"])
+    .eq("status", "published")
     .is("deleted_at", null)
-    .select("id");
+    .lt("uploaded_at", batch.uploaded_at);
+  const olderIds = (olderPublished ?? []).map((b) => b.id);
+
+  let autoClosed = 0;
+  if (olderIds.length) {
+    const { data: closed } = await supabase
+      .from("unrecon_cases")
+      .update({ status: "auto_closed", closed_at: nowIso, closed_by: closedBy, updated_at: nowIso })
+      .in("batch_id", olderIds)
+      .in("status", ["open", "awaiting_outlet", "outlet_responded", "under_review"])
+      .is("deleted_at", null)
+      .select("id");
+    autoClosed = closed?.length ?? 0;
+  }
 
   // 3. Publish.
   await supabase.from("recon_batches").update({ status: "published" }).eq("id", batchId);
-  return { autoClosed: closed?.length ?? 0, agedUp: seen.length };
+  return { autoClosed, agedUp: seen.length };
 }
