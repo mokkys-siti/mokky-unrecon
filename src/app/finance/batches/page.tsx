@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { DeleteBatchButton } from "./delete-button";
 
 export const dynamic = "force-dynamic";
 
@@ -75,10 +76,17 @@ export default async function BatchesPage() {
                   <td className="px-4 py-2 text-gray-500">
                     {new Date(b.uploaded_at).toISOString().slice(0, 16).replace("T", " ")}
                   </td>
-                  <td className="px-4 py-2 text-right">
-                    <Link href={`/finance/batches/${b.id}`} className="font-medium text-brand-orange hover:underline">
-                      Open
-                    </Link>
+                  <td className="px-4 py-2">
+                    <div className="flex items-center justify-end gap-4">
+                      <Link href={`/finance/batches/${b.id}`} className="font-medium text-brand-orange hover:underline">
+                        Open
+                      </Link>
+                      <DeleteBatchButton
+                        batchId={b.id}
+                        published={b.status === "published"}
+                        compact
+                      />
+                    </div>
                   </td>
                 </tr>
               ))}

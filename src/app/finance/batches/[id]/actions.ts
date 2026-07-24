@@ -1,53 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/auth/session";
 import { isFinanceRole } from "@/lib/auth/roles";
 import { publishBatch } from "@/lib/recon/ingest";
 
 export type PublishState = { error: string | null; published: boolean };
-
-/**
- * Soft-delete a wrongly-uploaded batch and its cases (deleted_at) — honours the
- * no-hard-delete rule, hides it everywhere, and frees the same file to be
- * re-uploaded (the unique index and the one-unpublished-batch guard both ignore
- * deleted rows). Allowed for non-published batches (a wrong report is caught at
- * review); publishing is the point of no easy return.
- */
-export async function deleteBatchAction(formData: FormData): Promise<void> {
-  const session = await getSession();
-  const allowed =
-    session &&
-    (session.appRole === "admin" ||
-      (session.appRole && isFinanceRole(session.appRole)));
-  const batchId = String(formData.get("batchId") ?? "");
-  if (!session || !allowed || !batchId) return;
-
-  const supabase = await createClient();
-  const { data: batch } = await supabase
-    .from("recon_batches")
-    .select("id, status, deleted_at")
-    .eq("id", batchId)
-    .maybeSingle();
-  if (!batch || batch.deleted_at) return;
-  if (batch.status === "published") return; // published batches are not deletable here
-
-  const nowIso = new Date().toISOString();
-  await supabase
-    .from("unrecon_cases")
-    .update({ deleted_at: nowIso, updated_at: nowIso })
-    .eq("batch_id", batchId)
-    .is("deleted_at", null);
-  await supabase
-    .from("recon_batches")
-    .update({ deleted_at: nowIso })
-    .eq("id", batchId);
-
-  revalidatePath("/finance/batches");
-  redirect("/finance/batches");
-}
 
 export async function publishBatchAction(
   _prev: PublishState,

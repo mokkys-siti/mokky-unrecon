@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PublishForm } from "./publish-form";
-import { DeleteBatchButton } from "./delete-button";
+import { DeleteBatchButton } from "../delete-button";
 
 export const dynamic = "force-dynamic";
 
@@ -168,24 +168,32 @@ export default async function BatchReview({
       </div>
 
       {/* Publish */}
-      {batch.status === "review" ? (
-        <div className="mt-6 space-y-4">
+      {batch.status === "review" && (
+        <div className="mt-6">
           <PublishForm batchId={id} hasWarnings={warnings.length > 0} />
-          <div className="rounded-xl border border-gray-200 bg-brand-white p-4">
-            <h2 className="text-sm font-semibold text-gray-900">Wrong file?</h2>
-            <p className="mt-1 mb-3 text-sm text-gray-600">
-              Delete this batch and its {caseRows.length} case(s). Nothing has been
-              sent to the outlet yet, and you can re-upload the corrected file after.
-            </p>
-            <DeleteBatchButton batchId={id} />
-          </div>
         </div>
-      ) : batch.status === "published" ? (
+      )}
+      {batch.status === "published" && (
         <p className="mt-6 rounded-lg bg-brand-green/10 px-4 py-3 text-sm text-green-800">
           Published — cases are visible to the outlet.
           {summary.override ? ` Overridden: "${summary.override.reason}".` : ""}
         </p>
-      ) : null}
+      )}
+
+      {/* Wrong file — available for any batch */}
+      <div className="mt-6 rounded-xl border border-red-100 bg-brand-white p-4">
+        <h2 className="text-sm font-semibold text-gray-900">Wrong file?</h2>
+        <p className="mt-1 mb-3 text-sm text-gray-600">
+          {batch.status === "published"
+            ? `Delete this batch and its ${caseRows.length} case(s). The outlet can already see these — deleting withdraws them and discards any answers already given.`
+            : `Delete this batch and its ${caseRows.length} case(s). Nothing has reached the outlet yet; you can re-upload the corrected file afterwards.`}
+        </p>
+        <DeleteBatchButton
+          batchId={id}
+          published={batch.status === "published"}
+          label="Delete this batch"
+        />
+      </div>
     </div>
   );
 }
